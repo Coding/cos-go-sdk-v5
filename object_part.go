@@ -181,3 +181,52 @@ func (s *ObjectService) AbortMultipartUpload(ctx context.Context, name, uploadID
 	resp, err := s.client.send(ctx, &sendOpt)
 	return resp, err
 }
+
+// CopyPartHeaderOptions upload part copy request headers
+type CopyPartHeaderOptions struct {
+	XCosCopySource                  string `header:"x-cos-copy-source,omitempty" url:"-" xml:"-"`
+	XCosCopySourceRange             string `header:"x-cos-copy-source-range,omitempty" url:"-" xml:"-"`
+	XCosCopySourceIfModifiedSince   string `header:"x-cos-copy-source-If-Modified-Since,omitempty" url:"-" xml:"-"`
+	XCosCopySourceIfUnmodifiedSince string `header:"x-cos-copy-source-If-Unmodified-Since,omitempty" url:"-" xml:"-"`
+	XCosCopySourceIfMatch           string `header:"x-cos-copy-source-If-Match,omitempty" url:"-" xml:"-"`
+	XCosCopySourceIfNoneMatch       string `header:"x-cos-copy-source-If-None-Match,omitempty" url:"-" xml:"-"`
+}
+
+// CopyPartResult upload part copy response
+type CopyPartResult struct {
+	ETag         string
+	LastModified string
+}
+
+// UploadPartCopy Uploads a part by copying data from an existing object as data source.
+func (s *ObjectService) UploadPartCopy(ctx context.Context, dest, source, uploadID string, partNumber int, opt *CopyPartHeaderOptions) (Object, *Response, error) {
+	if opt == nil {
+		opt = &CopyPartHeaderOptions{
+			XCosCopySource: fmt.Sprintf("%s/%s", s.client.BaseURL.BucketURL.Host, source),
+		}
+	}
+
+	u := fmt.Sprintf("/%s?partNumber=%d&uploadId=%s", encodeURIComponent(dest), partNumber, uploadID)
+	var res CopyPartResult
+	sendOpt := sendOptions{
+		baseURL:   s.client.BaseURL.BucketURL,
+		uri:       u,
+		method:    http.MethodPut,
+		optHeader: opt,
+		result:    &res,
+	}
+
+	sourceMeta, sourceHeadErr := s.client.Object.Head(ctx, source, nil)
+	if sourceHeadErr != nil {
+		return Object{}, nil, sourceHeadErr
+	}
+	resp, err := s.client.send(ctx, &sendOpt)
+	if err != nil {
+		return Object{}, resp, err
+	}
+	return Object{
+		ETag:       res.ETag,
+		Size:       int(sourceMeta.ContentLength),
+		PartNumber: partNumber,
+	}, resp, err
+}
